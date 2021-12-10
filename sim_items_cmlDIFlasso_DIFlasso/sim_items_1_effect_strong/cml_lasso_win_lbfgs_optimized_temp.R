@@ -1,0 +1,42 @@
+# tolerance 1e-08
+cml_lasso_win_lbfgs_optimized_temp <-  function (data, covariates, DIF_type = "all.interactions", 
+          nlambdas = 21, tolerance_df = 1e-08, ...) 
+{
+  npersons <- nrow(data)
+  nitems <- ncol(data)
+  ncov <- ncol(covariates)
+  time_unres <- system.time(res_unrestricted <- RM_DIF_lbfgs(data = data, 
+                                                             covariates = covariates, lambda = 0, invisible = 1))
+  time_res <- system.time(beta_estimates_restricted <- -itempar(raschmodel(data)))
+  lambda_max <- calc_lambda_max_cml(beta_intercepts = beta_estimates_restricted, 
+                                    covariates = covariates, Y = data)[[DIF_type]]
+  lambdas <- seq(10^-5, lambda_max, length.out = nlambdas - 
+                   1)
+  lambdas <- c(lambdas, lambdas[nlambdas - 1] + (lambdas[nlambdas - 
+                                                           1] - lambdas[nlambdas - 2]))
+  time_lbfgs <- system.time(results <- lapply(1:length(lambdas), 
+                                              function(x) RM_DIF_lbfgs(data = data, covariates = covariates, 
+                                                                       lambda = lambdas[x], invisible = 1, starting_betas = res_unrestricted$beta_estimates, 
+                                                                       starting_deltas = res_unrestricted$delta_estimates, 
+                                                                       ...)))
+  delta_est <- array(unlist(lapply(1:length(lambdas), function(x) results[[x]]$delta_estimates)), 
+                     c(ncov, nitems, length(lambdas)))
+  beta_est <- t(sapply(1:length(lambdas), function(x) results[[x]]$beta_estimates))
+  BIC_list <- NULL
+  for (j in 1:length(lambdas)) {
+    BIC_list[j] <- results[[j]]$estimatevalues$BIC <- BIC_lasso(Y = data, 
+                                                                betas = results[[j]]$beta_estimates, deltas = results[[j]]$delta_estimates, 
+                                                                covariates = covariates, DIF_type = DIF_type, delta_unres = res_unrestricted$delta_estimates, 
+                                                                tolerance = tolerance_df)
+  }
+  model_picked <- ifelse(1 %in% which(BIC_list == min(BIC_list)), 
+                         max(which(BIC_list == min(BIC_list))), which.min(BIC_list))
+  res_picked <- results[[model_picked]]
+  result <- list(results_per_lambda = results, BICs = BIC_list, 
+                 beta_estimates = beta_est, delta_estimates = delta_est, 
+                 lambdas = lambdas, times = list(time_unrestricted_model = time_unres, 
+                                                 time_penalized_part = time_lbfgs, time_restricted_model = time_res), 
+                 model_picked = model_picked, lambda_picked = lambdas[model_picked], 
+                 result_picked = res_picked, result_unrestricted = res_unrestricted, 
+                 beta_estimates_RM = beta_estimates_restricted)
+}
