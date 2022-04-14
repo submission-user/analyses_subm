@@ -1,0 +1,123 @@
+####
+#
+# comp.times (21 lambdas each)
+#
+#####
+
+#  plot times vs. n, I and nvars. colours changing by n, I or nvars
+library(GGally)
+ggpairs(df_t_and_scen[,c(3,6:8)], aes(colour = as.factor(scenario.n), alpha = 0.4))
+ggpairs(df_t_and_scen[,c(3,6:8)], aes(colour = as.factor(scenario.I), alpha = 0.4))
+ggpairs(df_t_and_scen[,c(3,6:8)], aes(colour = as.factor(scenario.nvars), alpha = 0.4))
+
+# influencing computation times
+#
+summary(lm(time.elapsed~scenario.n+scenario.I+scenario.nvars, data = df_t_and_scen))
+
+## interactions
+summary(lm(time.elapsed~scenario.n*scenario.I*scenario.nvars, data = df_t_and_scen))
+
+View(tbl_n1000)
+View(tbl_n)
+View(tbl_I)
+View(tbl_nvars)
+View(tbl1)
+
+#####
+#
+# results
+#
+#####
+
+# extract par_estimates
+deltapars <- lapply(1:length(res_foreach),function(x) unlist(res_foreach[[x]]$result$result_picked$delta_estimates))
+
+## boxplots for certain scenario
+make_box <- function(n1,I1,ncovs1) {
+  deltas_picked <- deltapars[which(apply(pars,1,function(x) all(x == c(n1,I1,ncovs1))))]
+  deltas_picked2 <- lapply(deltas_picked, function(x) as.vector(x))
+  deltas_matrix <- do.call(rbind,deltas_picked2)
+  boxplot(deltas_matrix, xlab = "deltas", ylab = "estimates", las = 1,
+          main = paste("n=",n1,"I=",I1,"ncovs=",ncovs1))
+}
+
+
+# calc_MSE_var_bias_exp for paameters
+calc_MSE_var_bias_exp <- 
+  function(n1,I1,ncovs1) {
+    deltas_picked <- deltapars[which(apply(pars,1,function(x) all(x == c(n1,I1,ncovs1))))]
+    deltas_picked2 <- lapply(deltas_picked, function(x) as.vector(x))
+    deltas_matrix <- do.call(rbind,deltas_picked2)
+    par_est <- as.vector(deltas_matrix)
+    unlist(list(MSE = mean((par_est)^2),
+                var = var(par_est),
+                 bias = mean(par_est)
+                ))
+  }
+
+(test <- calc_MSE_var_bias_exp(50,8,6))
+# scenarios:
+repetitions <- 100
+pars_help <- expand.grid(n = c(50,200,500),
+                         I = c(5,8,15,25), 
+                         nvars = c(1,2,6,11))
+pars <- do.call(rbind,replicate(repetitions,pars_help, simplify = FALSE))
+
+mse_etc <- lapply(1:48,function(x)calc_MSE_var_bias_exp(pars_help[x,1],
+                                                         pars_help[x,2],
+                                                         pars_help[x,3]))
+library(dplyr)
+df_mse_etc <- do.call(rbind, mse_etc)
+df_mse_etc2 <- cbind(pars_help, df_mse_etc)
+df_all <- cbind(tbl1,dplyr::arrange(df_mse_etc2,n,I,nvars)[,-(1:3)])
+# combine MSE, var and exp for po
+
+
+summary(lm(MSE~scenario.n+scenario.I+scenario.nvars, data = df_all))
+boxplot(as.list(df_all[,9:11]))
+
+## combine positive and negative deltas
+# keep only n,I,K, time, T.I err., Mean, Variance, Power, Mean, Variance
+
+names(df_all)
+df_all_reduced <- df_all[, -c(5,7,8)]
+
+names(df_all_reduced) <- c("n","I","K", "Comp.time","Type I error", "MSE", "Variance", "Bias") 
+
+df_all_reduced_noDIF <- df_all_reduced
+save(df_all_reduced_noDIF,
+     file = "df_all_reducednoDIF_100x100nullcases_cmldif_BIC_n.Rdata")
+
+
+# plot alpha by K, separate lines per I, sep. plots per n
+# separately for time, power DIF/noDIF mean and variance
+# two plots each (except means), second with adjusted scales per plot
+library(ggplot2)
+ggplot(data = df_all_reduced, aes(x=as.factor(K), y=Comp.time, group = I, color = as.factor(I))) + geom_line(size =.8) +
+  geom_point() + facet_wrap(~ n,nrow = 2) + labs(x= "Number of covariates", y="Computation time (no DIF-samples)",color ="Number \n of items")
+ggplot(data = df_all_reduced, aes(x=as.factor(K), y=Comp.time, group = I, color = as.factor(I))) + geom_line(size =.8) +
+  geom_point() + facet_wrap(~ n, scales = 'free',  nrow = 2) + labs(x= "number of covariates", y="Computation time (no DIF-samples)",color ="Number \n of items")
+
+
+# noDIF-delta
+ggplot(data = df_all_reduced, aes(x=as.factor(K), y=get('Type I error'), group = I, color = as.factor(I))) + geom_line(size =.8) +
+  geom_point() + facet_wrap(~ n, nrow =2) + labs(x= "number of covariates", y="Type I error (no DIF-samples)",color ="Number \n of items")
+ggplot(data = df_all_reduced, aes(x=as.factor(K), y=get('Type I error'), group = I, color = as.factor(I))) + geom_line(size =.8) +
+  geom_point() + facet_wrap(~ n, scales = 'free', nrow =2) + labs(x= "number of covariates", y="Type I error (no DIF-samples)",color ="Number \n of items")
+
+ggplot(data = df_all_reduced, aes(x=as.factor(K), y=Bias, group = I, color = as.factor(I))) + geom_line(size =.8) +
+  geom_point() + facet_wrap(~ n, nrow =2) + labs(x= "number of covariates", y="Mean of estimates (no DIF-samples)",color ="Number \n of items")
+ggplot(data = df_all_reduced, aes(x=as.factor(K), y=Bias, group = I, color = as.factor(I))) + geom_line(size =.8) +
+  geom_point() + facet_wrap(~ n, scales = 'free', nrow =2) + labs(x= "number of covariates", y="Mean of estimates (no DIF-samples)",color ="Number \n of items")
+
+ggplot(data = df_all_reduced, aes(x=as.factor(K), y=Variance, group = I, color = as.factor(I))) + geom_line(size =.8) +
+  geom_point() + facet_wrap(~ n, nrow =2) + labs(x= "number of covariates", y="Variance of estimates (no DIF-samples)",color ="Number \n of items")
+ggplot(data = df_all_reduced, aes(x=as.factor(K), y=Variance, group = I, color = as.factor(I))) + geom_line(size =.8) +
+  geom_point() + facet_wrap(~ n, scales = 'free', nrow =2) + labs(x= "number of covariates", y="Variance of estimates (no DIF-samples)",color ="Number \n of items")
+
+
+
+
+
+
+#
